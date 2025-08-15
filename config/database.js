@@ -2,17 +2,18 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const dbConfig = {
-  host: process.env.DB_HOST || 's3.whitelabelclouds.com',
+  host: process.env.DB_HOST || 's5.whitelabelclouds.com', 
   user: process.env.DB_USER || 'xkroworg_api',
   password: process.env.DB_PASSWORD || 'Nikido886@',
   database: process.env.DB_NAME || 'xkroworg_api',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  connectTimeout: 10000, 
   acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true
+  ssl: { rejectUnauthorized: false }
 };
+
 
 // Create connection pool
 const pool = mysql.createPool(dbConfig);
