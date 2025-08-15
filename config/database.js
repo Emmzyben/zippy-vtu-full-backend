@@ -3,9 +3,9 @@ require('dotenv').config();
 
 const dbConfig = {
   host: process.env.DB_HOST || 's3.whitelabelclouds.com',
-  user: process.env.DB_USER || 'classicm_zippy-backend',
+  user: process.env.DB_USER || 'xkroworg_api',
   password: process.env.DB_PASSWORD || 'Nikido886@',
-  database: process.env.DB_NAME || 'classicm_zippy-backend',
+  database: process.env.DB_NAME || 'xkroworg_api',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
