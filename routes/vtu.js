@@ -5,259 +5,163 @@ const axios = require('axios');
 
 const router = express.Router();
 
-// Mock VTU service for demo purposes
-const mockVTUService = {
-  async buyAirtime(data) {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Simulate 95% success rate
-    const isSuccess = Math.random() > 0.05;
-    
-    return {
-      success: isSuccess,
-      message: isSuccess ? 'Airtime purchase successful' : 'Airtime purchase failed',
-      reference: `VTU_${Date.now()}`,
-      data: isSuccess ? data : null
-    };
-  },
+const VT_PASS_API = process.env.VTPASS_BASE_URL || "https://vtpass.com/api";
+const USERNAME = process.env.VTPASS_USERNAME;
+const PASSWORD = process.env.VTPASS_PASSWORD;
 
-  async buyData(data) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const isSuccess = Math.random() > 0.05;
-    
-    return {
-      success: isSuccess,
-      message: isSuccess ? 'Data purchase successful' : 'Data purchase failed',
-      reference: `VTU_${Date.now()}`,
-      data: isSuccess ? data : null
-    };
+// Axios instance for VTpass
+const vtpass = axios.create({
+  baseURL: VT_PASS_API,
+  auth: {
+    username: USERNAME,
+    password: PASSWORD
   },
-
-  async payBill(data) {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const isSuccess = Math.random() > 0.1; // 90% success rate for bills
-    
-    return {
-      success: isSuccess,
-      message: isSuccess ? 'Bill payment successful' : 'Bill payment failed',
-      reference: `BILL_${Date.now()}`,
-      data: isSuccess ? data : null
-    };
+  headers: {
+    "Content-Type": "application/json"
   }
-};
+});
 
-// Buy airtime
+// Generate request ID (unique)
+const generateRequestId = () => `VTU_${Date.now()}`;
+
+// =================== Airtime ===================
 router.post('/airtime', authMiddleware, [
-  body('network').isIn(['mtn', 'glo', 'airtel', '9mobile']).withMessage('Invalid network'),
+  body('network').notEmpty().withMessage('Network is required'),
   body('phone').isMobilePhone().withMessage('Invalid phone number'),
   body('amount').isFloat({ min: 50, max: 50000 }).withMessage('Amount must be between ₦50 and ₦50,000')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     const { network, phone, amount } = req.body;
 
-    // Call VTU service
-    const vtuResponse = await mockVTUService.buyAirtime({
-      network,
-      phone,
-      amount
+    const request_id = generateRequestId();
+
+    const response = await vtpass.post("/pay", {
+      request_id,
+      serviceID: network,   
+      amount,
+      phone
     });
 
-    if (!vtuResponse.success) {
-      return res.status(400).json({
-        success: false,
-        message: vtuResponse.message
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Airtime purchase successful',
-      data: {
-        network,
-        phone,
-        amount,
-        reference: vtuResponse.reference
-      }
-    });
+    return res.json(response.data);
 
   } catch (error) {
-    console.error('Airtime purchase error:', error);
+    console.error("Airtime error:", error.response?.data || error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error during airtime purchase'
+      message: "Server error during airtime purchase",
+      error: error.response?.data || error.message
     });
   }
 });
 
-// Buy data
+// =================== Data ===================
 router.post('/data', authMiddleware, [
-  body('network').isIn(['mtn', 'glo', 'airtel', '9mobile']).withMessage('Invalid network'),
+  body('network').notEmpty().withMessage('Network is required'),
   body('phone').isMobilePhone().withMessage('Invalid phone number'),
-  body('plan').notEmpty().withMessage('Data plan is required')
+  body('plan').notEmpty().withMessage('Data plan variation code is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     const { network, phone, plan } = req.body;
+    const request_id = generateRequestId();
 
-    // Call VTU service
-    const vtuResponse = await mockVTUService.buyData({
-      network,
-      phone,
-      plan
+    const response = await vtpass.post("/pay", {
+      request_id,
+      serviceID: network,   // e.g., "mtn-data"
+      variation_code: plan, // e.g., "mtn-1gb"
+      phone
     });
 
-    if (!vtuResponse.success) {
-      return res.status(400).json({
-        success: false,
-        message: vtuResponse.message
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Data purchase successful',
-      data: {
-        network,
-        phone,
-        plan,
-        reference: vtuResponse.reference
-      }
-    });
+    return res.json(response.data);
 
   } catch (error) {
-    console.error('Data purchase error:', error);
+    console.error("Data error:", error.response?.data || error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error during data purchase'
+      message: "Server error during data purchase",
+      error: error.response?.data || error.message
     });
   }
 });
 
-// Pay bills
+// =================== Bills (Electricity, TV, etc.) ===================
 router.post('/bills', authMiddleware, [
-  body('category').isIn(['electricity', 'cable', 'internet', 'water']).withMessage('Invalid bill category'),
-  body('provider').notEmpty().withMessage('Provider is required'),
-  body('accountNumber').notEmpty().withMessage('Account number is required'),
-  body('amount').isFloat({ min: 100 }).withMessage('Minimum amount is ₦100')
+  body('serviceID').notEmpty().withMessage('ServiceID is required'),
+  body('billersCode').notEmpty().withMessage('BillersCode is required'),
+  body('variation_code').notEmpty().withMessage('Variation code is required'),
+  body('amount').isFloat({ min: 100 }).withMessage('Minimum amount is ₦100'),
+  body('phone').isMobilePhone().withMessage('Valid phone number required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const { category, provider, accountNumber, amount, customerName } = req.body;
+    const { serviceID, billersCode, variation_code, amount, phone } = req.body;
+    const request_id = generateRequestId();
 
-    // Call VTU service
-    const vtuResponse = await mockVTUService.payBill({
-      category,
-      provider,
-      accountNumber,
+    const response = await vtpass.post("/pay", {
+      request_id,
+      serviceID,       // e.g., "dstv", "gotv", "eko-electric"
+      billersCode,     // e.g., Smartcard number / Meter number
+      variation_code,  // Package code (e.g., "dstv-padi")
       amount,
-      customerName
+      phone
     });
 
-    if (!vtuResponse.success) {
-      return res.status(400).json({
-        success: false,
-        message: vtuResponse.message
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Bill payment successful',
-      data: {
-        category,
-        provider,
-        accountNumber,
-        amount,
-        customerName,
-        reference: vtuResponse.reference
-      }
-    });
+    return res.json(response.data);
 
   } catch (error) {
-    console.error('Bill payment error:', error);
+    console.error("Bills error:", error.response?.data || error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error during bill payment'
+      message: "Server error during bill payment",
+      error: error.response?.data || error.message
     });
   }
 });
 
-// Get data plans for a network
-router.get('/data-plans/:network', authMiddleware, async (req, res) => {
+
+// =================== Fetch Available Services ===================
+router.get('/services', authMiddleware, async (req, res) => {
   try {
-    const { network } = req.params;
-
-    if (!['mtn', 'glo', 'airtel', '9mobile'].includes(network)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid network'
-      });
-    }
-
-    // Mock data plans
-    const dataPlans = {
-      mtn: [
-        { id: 'mtn-1gb', name: '1GB - 30 Days', price: 350, data: '1GB', validity: '30 Days' },
-        { id: 'mtn-2gb', name: '2GB - 30 Days', price: 700, data: '2GB', validity: '30 Days' },
-        { id: 'mtn-5gb', name: '5GB - 30 Days', price: 1500, data: '5GB', validity: '30 Days' },
-        { id: 'mtn-10gb', name: '10GB - 30 Days', price: 2500, data: '10GB', validity: '30 Days' }
-      ],
-      glo: [
-        { id: 'glo-1gb', name: '1GB - 30 Days', price: 350, data: '1GB', validity: '30 Days' },
-        { id: 'glo-2gb', name: '2GB - 30 Days', price: 700, data: '2GB', validity: '30 Days' },
-        { id: 'glo-5gb', name: '5GB - 30 Days', price: 1500, data: '5GB', validity: '30 Days' },
-        { id: 'glo-10gb', name: '10GB - 30 Days', price: 2500, data: '10GB', validity: '30 Days' }
-      ],
-      airtel: [
-        { id: 'airtel-1gb', name: '1GB - 30 Days', price: 350, data: '1GB', validity: '30 Days' },
-        { id: 'airtel-2gb', name: '2GB - 30 Days', price: 700, data: '2GB', validity: '30 Days' },
-        { id: 'airtel-5gb', name: '5GB - 30 Days', price: 1500, data: '5GB', validity: '30 Days' },
-        { id: 'airtel-10gb', name: '10GB - 30 Days', price: 2500, data: '10GB', validity: '30 Days' }
-      ],
-      '9mobile': [
-        { id: '9mobile-1gb', name: '1GB - 30 Days', price: 350, data: '1GB', validity: '30 Days' },
-        { id: '9mobile-2gb', name: '2GB - 30 Days', price: 700, data: '2GB', validity: '30 Days' },
-        { id: '9mobile-5gb', name: '5GB - 30 Days', price: 1500, data: '5GB', validity: '30 Days' },
-        { id: '9mobile-10gb', name: '10GB - 30 Days', price: 2500, data: '10GB', validity: '30 Days' }
-      ]
-    };
-
-    res.json({
-      success: true,
-      plans: dataPlans[network] || []
-    });
-
+    const response = await vtpass.get(`/service-categories`);
+    res.json(response.data);
   } catch (error) {
-    console.error('Get data plans error:', error);
+    console.error("Services error:", error.response?.data || error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: "Server error fetching services",
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// =================== Fetch Data Plans / Variations ===================
+router.get('/variations/:serviceID', authMiddleware, async (req, res) => {
+  try {
+    const { serviceID } = req.params;
+
+    const response = await vtpass.get(`/service-variations?serviceID=${serviceID}`);
+
+    res.json(response.data);
+
+  } catch (error) {
+    console.error("Variations error:", error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      message: "Server error fetching service variations",
+      error: error.response?.data || error.message
     });
   }
 });
