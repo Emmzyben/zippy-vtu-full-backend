@@ -36,7 +36,6 @@ router.get('/balance', authMiddleware, async (req, res) => {
 });
 
 // Fund wallet (initiate payment)
-// Fund wallet (simulate success)
 router.post('/fund', authMiddleware, [
   body('amount').isFloat({ min: 100 }).withMessage('Minimum funding amount is ₦100')
 ], async (req, res) => {
@@ -56,29 +55,26 @@ router.post('/fund', authMiddleware, [
     // Generate unique reference
     const reference = `ZP_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    // Create transaction directly as "success"
+    // Create pending transaction
     await db.execute(
       'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, 'wallet_fund', amount, reference, 'success', JSON.stringify({ payment_method: 'test' })]
+      [userId, 'wallet_fund', amount, reference, 'pending', JSON.stringify({ payment_method: 'paystack' })]
     );
 
-    // Credit user wallet immediately
-    await db.execute(
-      'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
-      [amount, userId]
-    );
-
-    // Fake payment gateway response
+    // In a real implementation, you would integrate with Paystack here
+    // For demo purposes, we'll simulate a successful payment
+    
+    // Simulate payment gateway response
     const paymentResponse = {
       status: 'success',
       reference: reference,
-      payment_url: null,
-      access_code: null
+      payment_url: `https://checkout.paystack.com/demo?reference=${reference}&amount=${amount * 100}`,
+      access_code: `access_code_${crypto.randomBytes(8).toString('hex')}`
     };
 
     res.json({
       success: true,
-      message: 'Wallet funded successfully (test mode)',
+      message: 'Payment initiated successfully',
       data: paymentResponse
     });
 
@@ -90,7 +86,6 @@ router.post('/fund', authMiddleware, [
     });
   }
 });
-
 
 // Webhook for payment verification (Paystack webhook)
 router.post('/webhook/paystack', async (req, res) => {

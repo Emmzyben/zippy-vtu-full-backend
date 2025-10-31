@@ -10,6 +10,7 @@ const walletRoutes = require('./routes/wallet');
 const vtuRoutes = require('./routes/vtu');
 const transactionRoutes = require('./routes/transactions');
 const referralRoutes = require('./routes/referral');
+const beneficiaryRoutes = require('./routes/beneficiaries');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -52,6 +53,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/vtu', vtuRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/referral', referralRoutes);
+app.use('/api/beneficiaries', beneficiaryRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -11,7 +11,9 @@ const dbConfig = {
   queueLimit: 0,
   connectTimeout: 10000, 
   acquireTimeout: 60000,
-  ssl: { rejectUnauthorized: false }
+    port: 3306,
+    ssl:false
+  // ssl: { rejectUnauthorized: false }
 };
 
 
@@ -83,6 +85,21 @@ const initializeDatabase = async () => {
         FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (referred_id) REFERENCES users(id) ON DELETE CASCADE,
         UNIQUE KEY unique_referral (referrer_id, referred_id)
+      )
+    `);
+
+    // Create beneficiaries table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS beneficiaries (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        phone_number VARCHAR(20) NOT NULL,
+        name VARCHAR(255),
+        network VARCHAR(50),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_beneficiary (user_id, phone_number)
       )
     `);
 

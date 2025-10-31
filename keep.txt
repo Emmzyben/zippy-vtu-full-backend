@@ -1,0 +1,34 @@
+# Database Configuration
+# DB_HOST=s5.whitelabelclouds.com
+# DB_USER=xkroworg_api
+# DB_PASSWORD=Nikido886@
+# DB_NAME=xkroworg_api
+
+DB_HOST=localhost 
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=zippy-backend
+# JWT Secret
+JWT_SECRET=ilovewomenlikemad
+
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+
+# Payment Gateway (Paystack)
+PAYSTACK_SECRET_KEY=sk_test_your_paystack_secret_key
+PAYSTACK_PUBLIC_KEY=pk_test_your_paystack_public_key
+    
+# VTU API Configuration
+VTPASS_BASE_URL=https://sandbox.vtpass.com/api
+VTPASS_API_KEY=3d279cd385766ae73a12dd74d7bb49f8
+VTPASS_SECRET_KEY=SK_7465025717c188bd9fedc2603db11d20f6667c36d61
+VTPASS_PUBLIC_KEY=PK_588ef1b493061a16b4b21fb9c347ad39dfdb35f289c
+
+# Frontend URL
+FRONTEND_URL=zippy-theta.vercel.app
+
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID=your_google_client_id_here
+GOOGLE_CLIENT_SECRET=your_google_client_secret_here

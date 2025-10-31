@@ -28,7 +28,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // Get transactions with pagination
     const [transactions] = await db.execute(
       `SELECT id, type, amount, status, reference, details, created_at, updated_at 
-       FROM transactions 
+       FROM transactions
        ${whereConditions} 
        ORDER BY created_at DESC 
        LIMIT ? OFFSET ?`,
