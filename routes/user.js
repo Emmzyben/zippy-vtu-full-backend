@@ -62,7 +62,7 @@ router.put('/profile', authMiddleware, [
 
     // Get updated user data
     const [updatedUser] = await db.execute(
-      'SELECT id, full_name, email, phone, wallet_balance, referral_code FROM users WHERE id = ?',
+      'SELECT id, full_name, email, phone, wallet_balance, referral_code, is_verified FROM users WHERE id = ?',
       [userId]
     );
 
@@ -84,7 +84,7 @@ router.put('/profile', authMiddleware, [
 // Change password
 router.put('/password', authMiddleware, [
   body('currentPassword').notEmpty().withMessage('Current password is required'),
-  body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
+  body('newPassword').isLength({ min: 8 }).matches(/^(?=.*[A-Z])(?=.*[!@#$%^&*()_+\-=\[\]{}|;':",./<>?]).*$/).withMessage('New password must be at least 8 characters, contain at least one capital letter, and one special character')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

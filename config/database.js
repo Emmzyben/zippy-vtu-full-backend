@@ -2,20 +2,18 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const dbConfig = {
-  host: process.env.DB_HOST, 
+  host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  connectTimeout: 10000, 
+  connectTimeout: 10000,
   acquireTimeout: 60000,
-    port: 3306,
-    ssl:false
-  // ssl: { rejectUnauthorized: false }
+  port: 3306,
+  ssl: false
 };
-
 
 // Create connection pool
 const pool = mysql.createPool(dbConfig);
@@ -36,7 +34,7 @@ const testConnection = async () => {
 const initializeDatabase = async () => {
   try {
     const connection = await pool.getConnection();
-    
+
     // Create users table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS users (
@@ -50,6 +48,9 @@ const initializeDatabase = async () => {
         wallet_balance DECIMAL(10,2) DEFAULT 0.00,
         referral_code VARCHAR(10) UNIQUE,
         referred_by VARCHAR(10),
+        email_verification_code VARCHAR(10),
+        email_code_expires_at DATETIME,
+        is_verified BOOLEAN DEFAULT FALSE,
         is_active BOOLEAN DEFAULT TRUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -100,6 +101,19 @@ const initializeDatabase = async () => {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         UNIQUE KEY unique_beneficiary (user_id, phone_number)
+      )
+    `);
+
+    // Create password_resets table (fixed)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used BOOLEAN DEFAULT FALSE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
 

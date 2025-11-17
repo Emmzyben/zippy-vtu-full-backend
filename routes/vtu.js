@@ -369,28 +369,258 @@ router.post('/data', authMiddleware, [
   }
 });
 
+// =================== Verify Smartcard ===================
+router.post('/verify-smartcard', authMiddleware, [
+  body('serviceID').isIn(['dstv', 'gotv']).withMessage('ServiceID must be dstv or gotv'),
+  body('billersCode').notEmpty().withMessage('Smartcard number is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { serviceID, billersCode } = req.body;
+
+    const response = await vtpassPost.post("/merchant-verify", {
+      serviceID,
+      billersCode
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error("Smartcard verification error:", error.response?.data || error.message);
+    res.status(500).json({ success: false, error: error.response?.data || error.message });
+  }
+});
+
+// =================== Verify Meter ===================
+router.post('/verify-meter', authMiddleware, [
+  body('serviceID').isIn(['portharcourt-electric', 'abuja-electric', 'ikeja-electric', 'eko-electric']).withMessage('Invalid serviceID for meter verification'),
+  body('billersCode').notEmpty().withMessage('Meter number is required'),
+  body('type').isIn(['prepaid', 'postpaid']).withMessage('Type must be prepaid or postpaid')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { serviceID, billersCode, type } = req.body;
+
+    console.log(`Meter verification request: serviceID=${serviceID}, billersCode=${billersCode}, type=${type}`);
+
+    const response = await vtpassPost.post("/merchant-verify", {
+      serviceID,
+      billersCode,
+      type
+    });
+
+    console.log("VTpass meter verification response:", JSON.stringify(response.data, null, 2));
+
+    // Check if VTpass returned an error
+    if (response.data.code && response.data.code !== "000") {
+      // VTpass error response
+      const errorMessage = response.data.response_description || response.data.content?.error || "Meter verification failed";
+      console.error("VTpass meter verification error:", errorMessage);
+      return res.status(400).json({
+        success: false,
+        error: errorMessage,
+        details: response.data
+      });
+    }
+
+    // Check for successful response with customer data
+    if (response.data.content && response.data.content.Customer_Name) {
+      res.json(response.data);
+    } else if (response.data.Customer_Name) {
+      res.json(response.data);
+    } else {
+      // No customer name found, but no explicit error from VTpass
+      console.warn("Meter verification response missing Customer_Name:", response.data);
+      res.status(400).json({
+        success: false,
+        error: "Meter verification failed. Please check your meter number.",
+        details: response.data
+      });
+    }
+  } catch (error) {
+    console.error("Meter verification error:", error.response?.data || error.message);
+    const errorMessage = error.response?.data?.response_description ||
+                        error.response?.data?.content?.error ||
+                        error.response?.data?.message ||
+                        "Meter verification failed. Please try again.";
+    res.status(500).json({ success: false, error: errorMessage, details: error.response?.data });
+  }
+});
+
 // =================== Bills (TV, Electricity, etc.) ===================
 router.post('/bills', authMiddleware, [
   body('serviceID').notEmpty(),
   body('billersCode').notEmpty(),
-  body('variation_code').notEmpty(),
+  body('variation_code').optional(),
   body('amount').isFloat({ min: 100 }),
-  body('phone').isMobilePhone()
+  body('phone').optional().isMobilePhone(),
+  body('subscription_type').optional().isIn(['change', 'renew'])
 ], async (req, res) => {
   try {
-    const { serviceID, billersCode, variation_code, amount, phone } = req.body;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const userId = req.user.id;
+    const { serviceID, billersCode, variation_code, amount, phone, subscription_type } = req.body;
     const request_id = generateRequestId();
 
-    const response = await vtpassPost.post("/pay", {
+    // Check wallet balance before proceeding
+    const [users] = await db.execute(
+      'SELECT wallet_balance FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const currentBalance = parseFloat(users[0].wallet_balance);
+    if (currentBalance < amount) {
+      return res.status(400).json({ success: false, error: 'Insufficient wallet balance' });
+    }
+
+    // Prepare purchase payload
+    const purchasePayload = {
       request_id,
       serviceID,
-      billersCode,     
-      variation_code,  
-      amount,
-      phone
-    });
+      billersCode,
+      amount
+    };
 
-    res.json(response.data);
+    // Add phone for DSTV/GOTV/Startimes, and for Showmax (use billersCode as phone)
+    if (phone && serviceID !== 'showmax') {
+      purchasePayload.phone = phone;
+    } else if (serviceID === 'showmax') {
+      purchasePayload.phone = billersCode; // For Showmax, billersCode is the phone number
+    }
+
+    // Add variation_code and subscription_type for DSTV/GOTV
+    if (variation_code) purchasePayload.variation_code = variation_code;
+    if (subscription_type) purchasePayload.subscription_type = subscription_type;
+
+    // Step 1: Make purchase
+    const purchaseResponse = await vtpassPost.post("/pay", purchasePayload);
+    const purchaseData = purchaseResponse.data;
+    console.log("Exact bills purchase response from VTpass:", JSON.stringify(purchaseData, null, 2));
+
+    // Step 2: Immediately requery transaction status
+    let statusResponse;
+    try {
+      const requeryResponse = await vtpassPost.post("/requery", { request_id });
+      statusResponse = requeryResponse.data;
+      console.log("Exact bills requery response from VTpass:", JSON.stringify(statusResponse, null, 2));
+    } catch (requeryError) {
+      console.error("Bills requery error:", requeryError.response?.data || requeryError.message);
+      return res.status(500).json({
+        success: false,
+        error: "Unable to confirm transaction status",
+        raw: purchaseData
+      });
+    }
+
+    const txStatus = statusResponse?.content?.transactions?.status || "unknown";
+
+    // Step 3: Map VTpass status into success/failure/pending and record all transactions
+    const reference = request_id;
+    let token = null;
+
+    let responsePayload;
+    let transactionStatus;
+
+    if (txStatus === "delivered") {
+      transactionStatus = 'success';
+      // For prepaid electricity, extract token from response
+      if (variation_code === "prepaid" && (serviceID === "portharcourt-electric" || serviceID === "abuja-electric" || serviceID === "eko-electric" || serviceID === "ikeja-electric")) {
+        token = statusResponse?.content?.Token || statusResponse?.Token || statusResponse?.purchased_code || statusResponse?.mainToken;
+      }
+      responsePayload = { success: true, status: "success", data: statusResponse, token };
+    } else if (txStatus === "pending" || txStatus === "initiated") {
+      transactionStatus = 'pending';
+      responsePayload = { success: true, status: "pending", data: statusResponse };
+    } else {
+      transactionStatus = 'failed';
+      const errorMessage = statusResponse?.content?.transactions?.product_name ?
+        `Bill payment failed for ${statusResponse.content.transactions.product_name}` :
+        'Bill payment failed';
+      responsePayload = { success: false, status: "failed", error: errorMessage, data: statusResponse };
+    }
+
+    // Set transaction type to 'bill' for all bills transactions
+    let transactionType = 'bill';
+
+    const transactionDetails = {
+      serviceID,
+      billersCode,
+      variation_code,
+      amount,
+      phone,
+      subscription_type,
+      request_id,
+      token: token || null
+    };
+
+    if (txStatus === "delivered") {
+      try {
+        // Start database transaction
+        const connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        // Deduct from wallet
+        await connection.execute(
+          'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
+          [amount, userId]
+        );
+
+        // Create transaction record
+        await connection.execute(
+          'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
+          [userId, transactionType, amount, reference, transactionStatus, JSON.stringify(transactionDetails)]
+        );
+
+        await connection.commit();
+        connection.release();
+
+        console.log(`Bills transaction recorded: User ${userId}, Amount: ${amount}, Service: ${serviceID}, Type: ${transactionType}, Status: ${transactionStatus}`);
+      } catch (dbError) {
+        console.error('Database error recording transaction:', dbError);
+        // Continue with response even if DB fails
+      }
+    } else if (txStatus === "pending" || txStatus === "initiated") {
+      try {
+        // Record pending transaction (don't deduct wallet yet)
+        await db.execute(
+          'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
+          [userId, transactionType, amount, reference, transactionStatus, JSON.stringify(transactionDetails)]
+        );
+        console.log(`Bills transaction recorded: User ${userId}, Amount: ${amount}, Service: ${serviceID}, Type: ${transactionType}, Status: ${transactionStatus}`);
+      } catch (dbError) {
+        console.error('Database error recording transaction:', dbError);
+      }
+    } else {
+      try {
+        // Record failed transaction (don't deduct wallet)
+        await db.execute(
+          'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
+          [userId, transactionType, amount, reference, transactionStatus, JSON.stringify(transactionDetails)]
+        );
+        console.log(`Bills transaction recorded: User ${userId}, Amount: ${amount}, Service: ${serviceID}, Type: ${transactionType}, Status: ${transactionStatus}`);
+      } catch (dbError) {
+        console.error('Database error recording transaction:', dbError);
+      }
+    }
+
+    console.log("Bills response sent to frontend:", JSON.stringify(responsePayload, null, 2));
+    return res.json(responsePayload);
+
   } catch (error) {
     console.error("Bills error:", error.response?.data || error.message);
     res.status(500).json({ success: false, error: error.response?.data || error.message });

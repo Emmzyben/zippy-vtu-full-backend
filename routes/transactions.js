@@ -166,4 +166,30 @@ router.get('/stats/summary', authMiddleware, async (req, res) => {
   }
 });
 
+// Get distinct transaction types for the user
+router.get('/types', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [types] = await db.execute(
+      'SELECT DISTINCT type FROM transactions WHERE user_id = ? ORDER BY type',
+      [userId]
+    );
+
+    const transactionTypes = types.map(row => row.type);
+
+    res.json({
+      success: true,
+      types: transactionTypes
+    });
+
+  } catch (error) {
+    console.error('Get transaction types error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
 module.exports = router;

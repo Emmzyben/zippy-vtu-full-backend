@@ -16,7 +16,7 @@ const authMiddleware = async (req, res, next) => {
     
     // Get user from database
     const [users] = await db.execute(
-      'SELECT id, full_name, email, phone, wallet_balance, referral_code FROM users WHERE id = ? AND is_active = TRUE',
+      'SELECT id, full_name, email, phone, wallet_balance, referral_code, is_verified FROM users WHERE id = ? AND is_active = TRUE',
       [decoded.userId]
     );
 

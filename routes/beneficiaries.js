@@ -10,7 +10,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const [beneficiaries] = await db.execute(
-      'SELECT id, phone_number, name, network, created_at FROM beneficiaries WHERE user_id = ? ORDER BY created_at DESC',
+      'SELECT id, phone_number, name, created_at FROM beneficiaries WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
     );
 
@@ -24,8 +24,7 @@ router.get('/', authMiddleware, async (req, res) => {
 // Add a new beneficiary
 router.post('/', authMiddleware, [
   body('phone_number').isMobilePhone().withMessage('Valid phone number is required'),
-  body('name').optional().isLength({ min: 1, max: 255 }).withMessage('Name must be between 1 and 255 characters'),
-  body('network').optional().isIn(['mtn', 'glo', 'airtel', 'etisalat']).withMessage('Invalid network')
+  body('name').optional().isLength({ min: 1, max: 255 }).withMessage('Name must be between 1 and 255 characters')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -34,7 +33,7 @@ router.post('/', authMiddleware, [
     }
 
     const userId = req.user.id;
-    const { phone_number, name, network } = req.body;
+    const { phone_number, name } = req.body;
 
     // Check if beneficiary already exists
     const [existing] = await db.execute(
@@ -48,8 +47,8 @@ router.post('/', authMiddleware, [
 
     // Add new beneficiary
     const [result] = await db.execute(
-      'INSERT INTO beneficiaries (user_id, phone_number, name, network) VALUES (?, ?, ?, ?)',
-      [userId, phone_number, name || null, network || null]
+      'INSERT INTO beneficiaries (user_id, phone_number, name) VALUES (?, ?, ?)',
+      [userId, phone_number, name || null]
     );
 
     res.json({
@@ -58,8 +57,7 @@ router.post('/', authMiddleware, [
       beneficiary: {
         id: result.insertId,
         phone_number,
-        name,
-        network
+        name
       }
     });
   } catch (error) {

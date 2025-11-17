@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/auth');
 const db = require('../config/database');
 const crypto = require('crypto');
+const axios = require('axios');
 
 const router = express.Router();
 
@@ -36,7 +37,6 @@ router.get('/balance', authMiddleware, async (req, res) => {
 });
 
 // Fund wallet (initiate payment)
-// Fund wallet (simulate success)
 router.post('/fund', authMiddleware, [
   body('amount').isFloat({ min: 100 }).withMessage('Minimum funding amount is ₦100')
 ], async (req, res) => {
@@ -53,33 +53,67 @@ router.post('/fund', authMiddleware, [
     const { amount } = req.body;
     const userId = req.user.id;
 
+    // Get user email
+    const [users] = await db.execute(
+      'SELECT email FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const userEmail = users[0].email;
+
     // Generate unique reference
     const reference = `ZP_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-    // Create transaction directly as "success"
+    // Initialize Paystack transaction
+    const paystackResponse = await axios.post(
+      'https://api.paystack.co/transaction/initialize',
+      {
+        amount: amount * 100, // Convert to kobo
+        email: userEmail,
+        reference: reference,
+        callback_url: `${process.env.FRONTEND_URL}/wallet`,
+        metadata: {
+          user_id: userId,
+          type: 'wallet_fund'
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!paystackResponse.data.status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to initialize payment'
+      });
+    }
+
+    // Create transaction as "pending"
     await db.execute(
       'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, 'wallet_fund', amount, reference, 'success', JSON.stringify({ payment_method: 'test' })]
+      [userId, 'wallet_fund', amount, reference, 'pending', JSON.stringify({ payment_method: 'paystack' })]
     );
-
-    // Credit user wallet immediately
-    await db.execute(
-      'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
-      [amount, userId]
-    );
-
-    // Fake payment gateway response
-    const paymentResponse = {
-      status: 'success',
-      reference: reference,
-      payment_url: null,
-      access_code: null
-    };
 
     res.json({
       success: true,
-      message: 'Wallet funded successfully (test mode)',
-      data: paymentResponse
+      message: 'Payment initialized successfully',
+      data: {
+        authorization_url: paystackResponse.data.data.authorization_url,
+        access_code: paystackResponse.data.data.access_code,
+        reference: reference
+      },
+      email: userEmail
     });
 
   } catch (error) {
@@ -92,7 +126,95 @@ router.post('/fund', authMiddleware, [
 });
 
 
-// Webhook for payment verification (Paystack webhook)
+// Verify payment (called after successful payment callback)
+router.post('/verify', authMiddleware, async (req, res) => {
+  try {
+    const { reference } = req.body;
+
+    if (!reference) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reference is required'
+      });
+    }
+
+    // Verify with Paystack
+    const verifyResponse = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!verifyResponse.data.status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment verification failed'
+      });
+    }
+
+    const { status, reference: paystackRef, amount } = verifyResponse.data.data;
+
+    // Find the transaction
+    const [transactions] = await db.execute(
+      'SELECT id, user_id, amount FROM transactions WHERE reference = ? AND status = ?',
+      [reference, 'pending']
+    );
+
+    if (transactions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+
+    const transaction = transactions[0];
+
+    if (status === 'success') {
+      // Update transaction status
+      await db.execute(
+        'UPDATE transactions SET status = ?, external_reference = ? WHERE id = ?',
+        ['success', paystackRef, transaction.id]
+      );
+
+      // Credit user wallet
+      await db.execute(
+        'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
+        [transaction.amount, transaction.user_id]
+      );
+
+      console.log(`Wallet funded: User ${transaction.user_id}, Amount: ${transaction.amount}`);
+
+      res.json({
+        success: true,
+        message: 'Payment verified and wallet funded successfully'
+      });
+    } else {
+      // Update transaction as failed
+      await db.execute(
+        'UPDATE transactions SET status = ? WHERE id = ?',
+        ['failed', transaction.id]
+      );
+
+      res.status(400).json({
+        success: false,
+        message: 'Payment was not successful'
+      });
+    }
+
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Payment verification failed'
+    });
+  }
+});
+
+// Webhook for payment verification (Paystack webhook) - kept as backup
 router.post('/webhook/paystack', async (req, res) => {
   try {
     const { event, data } = req.body;
