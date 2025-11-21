@@ -62,7 +62,7 @@ router.post('/', authMiddleware, [
         });
     } catch (error) {
         console.error('Add phone beneficiary error:', error.message);
-        res.status(500).json({ success: false, error: 'Failed to add beneficiary' });
+        res.status(500).json({ success: false, error: 'Failed to add beneficiary: ' + error.message });
     }
 });
 
