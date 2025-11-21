@@ -89,20 +89,31 @@ const initializeDatabase = async () => {
       )
     `);
 
-    // Create beneficiaries table
+    // Create phone_beneficiaries table
     await connection.execute(`
-      CREATE TABLE IF NOT EXISTS beneficiaries (
+      CREATE TABLE IF NOT EXISTS phone_beneficiaries (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        email VARCHAR(255),
-        phone_number VARCHAR(20),
+        phone_number VARCHAR(20) NOT NULL,
         name VARCHAR(255),
-        network VARCHAR(50),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        UNIQUE KEY unique_beneficiary_email (user_id, email),
-        UNIQUE KEY unique_beneficiary_phone (user_id, phone_number)
+        UNIQUE KEY unique_phone_beneficiary (user_id, phone_number)
+      )
+    `);
+
+    // Create email_beneficiaries table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS email_beneficiaries (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        name VARCHAR(255),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_email_beneficiary (user_id, email)
       )
     `);
 
