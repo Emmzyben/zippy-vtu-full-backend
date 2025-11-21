@@ -10,7 +10,7 @@ const dbConfig = {
   connectionLimit: 10,
   queueLimit: 0,
   connectTimeout: 10000,
-  acquireTimeout: 60000,
+
   port: 3306,
   ssl: false
 };
@@ -62,7 +62,7 @@ const initializeDatabase = async () => {
       CREATE TABLE IF NOT EXISTS transactions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        type ENUM('airtime', 'data', 'bill', 'wallet_fund', 'withdrawal') NOT NULL,
+        type ENUM('airtime', 'data', 'bill', 'wallet_fund', 'withdrawal', 'p2p_transfer') NOT NULL,
         amount DECIMAL(10,2) NOT NULL,
         details JSON,
         status ENUM('pending', 'success', 'failed') DEFAULT 'pending',
@@ -94,13 +94,15 @@ const initializeDatabase = async () => {
       CREATE TABLE IF NOT EXISTS beneficiaries (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
-        phone_number VARCHAR(20) NOT NULL,
+        email VARCHAR(255),
+        phone_number VARCHAR(20),
         name VARCHAR(255),
         network VARCHAR(50),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        UNIQUE KEY unique_beneficiary (user_id, phone_number)
+        UNIQUE KEY unique_beneficiary_email (user_id, email),
+        UNIQUE KEY unique_beneficiary_phone (user_id, phone_number)
       )
     `);
 

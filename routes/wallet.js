@@ -364,4 +364,195 @@ router.post('/transaction', authMiddleware, [
   }
 });
 
+// Transfer funds to another user via email
+router.post('/transfer', authMiddleware, [
+  body('recipient_email').isEmail().withMessage('Valid recipient email is required'),
+  body('amount').isFloat({ min: 1 }).withMessage('Transfer amount must be greater than 0')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { recipient_email, amount } = req.body;
+    const senderId = req.user.id;
+
+    // Check if sender is trying to transfer to themselves
+    const [sender] = await db.execute(
+      'SELECT email FROM users WHERE id = ?',
+      [senderId]
+    );
+
+    if (sender[0].email === recipient_email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot transfer funds to yourself'
+      });
+    }
+
+    // Find recipient by email
+    const [recipients] = await db.execute(
+      'SELECT id, full_name FROM users WHERE email = ?',
+      [recipient_email]
+    );
+
+    if (recipients.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Recipient not found'
+      });
+    }
+
+    const recipient = recipients[0];
+
+    // Check sender's balance
+    const [senderBalance] = await db.execute(
+      'SELECT wallet_balance FROM users WHERE id = ?',
+      [senderId]
+    );
+
+    const currentBalance = parseFloat(senderBalance[0].wallet_balance);
+    if (currentBalance < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient wallet balance'
+      });
+    }
+
+    // Generate unique reference
+    const reference = `ZP_P2P_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Start transaction
+    const connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // Deduct from sender
+      await connection.execute(
+        'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ?',
+        [amount, senderId]
+      );
+
+      // Credit to recipient
+      await connection.execute(
+        'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
+        [amount, recipient.id]
+      );
+
+      // Create transaction record for sender
+      await connection.execute(
+        'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
+        [senderId, 'p2p_transfer', amount, `${reference}_DEBIT`, 'success', JSON.stringify({
+          recipient_email: recipient_email,
+          recipient_name: recipient.full_name,
+          transfer_type: 'debit'
+        })]
+      );
+
+      // Create transaction record for recipient
+      await connection.execute(
+        'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
+        [recipient.id, 'p2p_transfer', amount, `${reference}_CREDIT`, 'success', JSON.stringify({
+          sender_email: sender[0].email,
+          sender_name: req.user.full_name || 'Unknown',
+          transfer_type: 'credit'
+        })]
+      );
+
+      await connection.commit();
+
+      res.json({
+        success: true,
+        message: 'Transfer completed successfully',
+        data: {
+          recipient_name: recipient.full_name,
+          amount: amount,
+          reference: `${reference}_DEBIT`
+        }
+      });
+
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('Transfer error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Transfer failed'
+    });
+  }
+});
+
+// Validate recipient email and get details
+router.post('/validate-recipient', authMiddleware, [
+  body('email').isEmail().withMessage('Valid email is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email } = req.body;
+    const senderId = req.user.id;
+
+    // Check if sender is trying to validate themselves
+    const [sender] = await db.execute(
+      'SELECT email FROM users WHERE id = ?',
+      [senderId]
+    );
+
+    if (sender[0].email === email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot transfer funds to yourself'
+      });
+    }
+
+    // Find recipient by email
+    const [recipients] = await db.execute(
+      'SELECT id, full_name, email FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (recipients.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found with this email address'
+      });
+    }
+
+    const recipient = recipients[0];
+
+    res.json({
+      success: true,
+      recipient: {
+        id: recipient.id,
+        name: recipient.full_name,
+        email: recipient.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Validate recipient error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to validate recipient'
+    });
+  }
+});
+
 module.exports = router;

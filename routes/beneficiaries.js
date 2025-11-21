@@ -10,7 +10,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const [beneficiaries] = await db.execute(
-      'SELECT id, phone_number, name, created_at FROM beneficiaries WHERE user_id = ? ORDER BY created_at DESC',
+      'SELECT id, email, phone_number, name, created_at FROM beneficiaries WHERE user_id = ? ORDER BY created_at DESC',
       [userId]
     );
 
@@ -23,8 +23,9 @@ router.get('/', authMiddleware, async (req, res) => {
 
 // Add a new beneficiary
 router.post('/', authMiddleware, [
-  body('phone_number').isMobilePhone().withMessage('Valid phone number is required'),
-  body('name').optional().isLength({ min: 1, max: 255 }).withMessage('Name must be between 1 and 255 characters')
+  body('phone_number').optional().trim().isMobilePhone().withMessage('Valid phone number is required'),
+  body('email').optional().trim().isEmail().withMessage('Valid email is required'),
+  body('name').optional().trim().isLength({ min: 1, max: 255 }).withMessage('Name must be between 1 and 255 characters')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -33,13 +34,25 @@ router.post('/', authMiddleware, [
     }
 
     const userId = req.user.id;
-    const { phone_number, name } = req.body;
+    const { phone_number, email, name } = req.body;
+
+    if (!phone_number && !email) {
+      return res.status(400).json({ success: false, error: 'Either phone number or email is required' });
+    }
 
     // Check if beneficiary already exists
-    const [existing] = await db.execute(
-      'SELECT id FROM beneficiaries WHERE user_id = ? AND phone_number = ?',
-      [userId, phone_number]
-    );
+    let existing = [];
+    if (phone_number) {
+      [existing] = await db.execute(
+        'SELECT id FROM beneficiaries WHERE user_id = ? AND phone_number = ?',
+        [userId, phone_number]
+      );
+    } else if (email) {
+      [existing] = await db.execute(
+        'SELECT id FROM beneficiaries WHERE user_id = ? AND email = ?',
+        [userId, email]
+      );
+    }
 
     if (existing.length > 0) {
       return res.status(400).json({ success: false, error: 'Beneficiary already exists' });
@@ -47,8 +60,8 @@ router.post('/', authMiddleware, [
 
     // Add new beneficiary
     const [result] = await db.execute(
-      'INSERT INTO beneficiaries (user_id, phone_number, name) VALUES (?, ?, ?)',
-      [userId, phone_number, name || null]
+      'INSERT INTO beneficiaries (user_id, phone_number, email, name) VALUES (?, ?, ?, ?)',
+      [userId, phone_number || null, email || null, name || null]
     );
 
     res.json({
