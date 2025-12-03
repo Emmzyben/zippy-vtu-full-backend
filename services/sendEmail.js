@@ -2,7 +2,7 @@ const fetch = require("node-fetch");
 
 async function sendEmail(toEmail, subject, message) {
   try {
-    const response = await fetch("https://connecta.uk/send_email.php", {
+    const response = await fetch("https://connecta.uk/send_email2.php", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
