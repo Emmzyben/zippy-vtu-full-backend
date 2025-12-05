@@ -135,7 +135,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Reference is required'
-      });
+      });  
     }
 
     // Verify with Paystack

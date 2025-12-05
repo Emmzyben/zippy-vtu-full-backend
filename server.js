@@ -64,6 +64,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/', (req, res) => {
+  res.send('Zippy Pay backend is alive');
+});
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
