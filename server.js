@@ -30,8 +30,9 @@ app.use(limiter);
 
 // CORS configuration
 const allowedOrigins = [
-  "https://zippy-theta.vercel.app",
-  "http://localhost:5173"
+  "http://localhost:5173",
+  "https://zippypay.ng",
+  "https://www.zippypay.ng",
 ];
 
 app.use(cors({
