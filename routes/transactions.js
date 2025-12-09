@@ -7,8 +7,7 @@ const router = express.Router();
 // Get user transactions
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { page = 1, limit = 20, type, status } = req.query;
-    const offset = (page - 1) * limit;
+    const { type, status } = req.query;
     const userId = req.user.id;
 
     // Build query conditions
@@ -25,44 +24,24 @@ router.get('/', authMiddleware, async (req, res) => {
       queryParams.push(status);
     }
 
-    // Get transactions with pagination
-    // Get transactions with pagination
-    const limitNum = parseInt(limit) || 20;
-    const offsetNum = parseInt(offset) || 0;
-
+    // Get transactions
     const [transactions] = await db.execute(
-      `SELECT id, type, amount, status, reference, details, created_at, updated_at 
+      `SELECT id, type, amount, status, reference, details, created_at, updated_at
        FROM transactions
-       ${whereConditions} 
-       ORDER BY created_at DESC 
-       LIMIT ${limitNum} OFFSET ${offsetNum}`,
+       ${whereConditions}
+       ORDER BY created_at DESC`,
       queryParams
     );
-
-    // Get total count
-    const [countResult] = await db.execute(
-      `SELECT COUNT(*) as total FROM transactions ${whereConditions}`,
-      queryParams
-    );
-
-    const total = countResult[0].total;
-    const totalPages = Math.ceil(total / limit);
 
     // Parse JSON details
     const formattedTransactions = transactions.map(transaction => ({
       ...transaction,
-      details: transaction.details ? JSON.parse(transaction.details) : null
+      details: typeof transaction.details === 'string' ? JSON.parse(transaction.details) : transaction.details
     }));
 
     res.json({
       success: true,
-      transactions: formattedTransactions,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: total,
-        itemsPerPage: parseInt(limit)
-      }
+      transactions: formattedTransactions
     });
 
   } catch (error) {
