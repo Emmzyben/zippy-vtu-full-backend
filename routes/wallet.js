@@ -274,10 +274,23 @@ router.post('/webhook/paystack', async (req, res) => {
 
         console.log(`Wallet funded: User ${transaction.user_id}, Amount: ${transaction.amount}`);
       } else {
-        // Update transaction as failed
+        // Map Paystack statuses to transaction statuses
+        let transactionStatus;
+        switch (status) {
+          case 'abandoned':
+            transactionStatus = 'cancelled';
+            break;
+          case 'failed':
+          case 'reversed':
+            transactionStatus = 'failed';
+            break;
+          default:
+            transactionStatus = 'failed';
+        }
+
         await db.execute(
-          'UPDATE transactions SET status = ? WHERE id = ?',
-          ['failed', transaction.id]
+          'UPDATE transactions SET status = ?, external_reference = ? WHERE id = ?',
+          [transactionStatus, data.id, transaction.id]
         );
       }
     }
