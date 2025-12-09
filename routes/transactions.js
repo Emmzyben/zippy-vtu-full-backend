@@ -26,13 +26,17 @@ router.get('/', authMiddleware, async (req, res) => {
     }
 
     // Get transactions with pagination
+    // Get transactions with pagination
+    const limitNum = parseInt(limit) || 20;
+    const offsetNum = parseInt(offset) || 0;
+
     const [transactions] = await db.execute(
       `SELECT id, type, amount, status, reference, details, created_at, updated_at 
        FROM transactions
        ${whereConditions} 
        ORDER BY created_at DESC 
-       LIMIT ? OFFSET ?`,
-      [...queryParams, parseInt(limit), parseInt(offset)]
+       LIMIT ${limitNum} OFFSET ${offsetNum}`,
+      queryParams
     );
 
     // Get total count
