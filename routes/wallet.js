@@ -214,15 +214,16 @@ router.post('/verify', authMiddleware, async (req, res) => {
         message: 'Payment verified and wallet funded successfully'
       });
     } else {
-      // Update transaction as failed
+      // Update transaction status based on Paystack status
+      const transactionStatus = status === 'cancelled' ? 'cancelled' : 'failed';
       await db.execute(
-        'UPDATE transactions SET status = ? WHERE id = ?',
-        ['failed', transaction.id]
+        'UPDATE transactions SET status = ?, external_reference = ? WHERE id = ?',
+        [transactionStatus, paystackRef, transaction.id]
       );
 
       res.status(400).json({
         success: false,
-        message: 'Payment was not successful'
+        message: `Payment ${status}`
       });
     }
 
