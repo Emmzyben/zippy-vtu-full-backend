@@ -71,11 +71,21 @@ router.post('/fund', authMiddleware, [
     // Generate unique reference
     const reference = `ZP_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
+    // Calculate Paystack fee
+    let fee = 0;
+    if (amount < 2500) {
+      fee = amount * 0.015;
+    } else {
+      fee = (amount * 0.015) + 100;
+    }
+
+    const amountToCredit = amount - fee;
+
     // Initialize Paystack transaction
     const paystackResponse = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
-        amount: amount * 100, // Convert to kobo
+        amount: amount * 100, // Convert to kobo (Gross Amount)
         email: userEmail,
         reference: reference,
         callback_url: `${process.env.FRONTEND_URL}/wallet`,
@@ -99,10 +109,21 @@ router.post('/fund', authMiddleware, [
       });
     }
 
-    // Create transaction as "pending"
+    // Create transaction as "pending" with NET amount to credit
     await db.execute(
       'INSERT INTO transactions (user_id, type, amount, reference, status, details) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, 'wallet_fund', amount, reference, 'pending', JSON.stringify({ payment_method: 'paystack' })]
+      [
+        userId,
+        'wallet_fund',
+        amountToCredit,
+        reference,
+        'pending',
+        JSON.stringify({
+          payment_method: 'paystack',
+          original_amount: amount,
+          fee: fee
+        })
+      ]
     );
 
     res.json({
@@ -135,7 +156,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Reference is required'
-      });  
+      });
     }
 
     // Verify with Paystack
