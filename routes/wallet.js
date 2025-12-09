@@ -215,7 +215,7 @@ router.post('/verify', authMiddleware, async (req, res) => {
       });
     } else {
       // Update transaction status based on Paystack status
-      const transactionStatus = status === 'cancelled' ? 'cancelled' : 'failed';
+      const transactionStatus = status === 'abandoned' ? 'cancelled' : 'failed';
       await db.execute(
         'UPDATE transactions SET status = ?, external_reference = ? WHERE id = ?',
         [transactionStatus, paystackRef, transaction.id]
